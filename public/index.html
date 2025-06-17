@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Split App</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header>
+      <h1>Split App</h1>
+    </header>
+    <main>
+      <section>
+        <h2>Create Group</h2>
+        <form id="groupForm">
+          <label>Group Name: <input type="text" name="name" required></label>
+          <label>Members (comma-separated): <input type="text" name="members" required></label>
+          <button type="submit">Create Group</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Add Member to Group</h2>
+        <form id="addMemberForm">
+          <label>Group:
+            <select name="group_id" id="groupSelectMember" required></select>
+          </label>
+          <label>Member Name: <input type="text" name="member" required></label>
+          <button type="submit">Add Member</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Add Expense</h2>
+        <form id="expenseForm">
+          <label>Group:
+            <select name="group_id" id="groupSelectExpense" required></select>
+          </label>
+          <label>Amount: <input type="number" name="amount" step="0.01" required></label>
+          <label>Description: <input type="text" name="description" required></label>
+          <label>Paid By:
+            <select name="paid_by" id="payerSelect" required></select>
+          </label>
+          <label>Category:
+            <select name="category">
+              <option value="Food">Food</option>
+              <option value="Travel">Travel</option>
+              <option value="Utilities">Utilities</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="Other">Other</option>
+            </select>
+          </label>
+          <label>Split Type:
+            <select name="split_type" id="splitType">
+              <option value="equal">Equal</option>
+              <option value="percentage">Percentage</option>
+              <option value="exact">Exact</option>
+            </select>
+          </label>
+          <div id="splitDetails"></div>
+          <button type="submit">Add Expense</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Groups</h2>
+        <div id="groups"></div>
+      </section>
+
+      <section>
+        <h2>Expenses</h2>
+        <label>Select Group: <select id="expenseGroupSelect"></select></label>
+        <div id="expenses"></div>
+      </section>
+
+      <section>
+        <h2>Balances</h2>
+        <label>Select Group: <select id="balanceGroupSelect"></select></label>
+        <div id="balances"></div>
+      </section>
+
+      <section>
+        <h2>Settlements</h2>
+        <label>Select Group: <select id="settlementGroupSelect"></select></label>
+        <div id="settlements"></div>
+      </section>
+
+      <section>
+        <h2>Category Summary</h2>
+        <label>Select Group: <select id="categoryGroupSelect"></select></label>
+        <div id="categorySummary"></div>
+      </section>
+    </main>
+
+    <script>
+      const baseUrl = window.location.origin;
+
+      // Fetch and populate groups
+      async function fetchGroups() {
+        const response = await fetch(`${baseUrl}/groups`);
+        const { data } = await response.json();
+        const groupSelects = [
+          document.getElementById('groupSelectMember'),
+          document.getElementById('groupSelectExpense'),
+          document.getElementById('expenseGroupSelect'),
+          document.getElementById('balanceGroupSelect'),
+          document.getElementById('settlementGroupSelect'),
+          document.getElementById('categoryGroupSelect'),
+        ];
+        groupSelects.forEach(select => {
+          select.innerHTML = '<option value="">Select Group</option>' + data.map(g => `<option value="${g._id}">${g.name}</option>`).join('');
+        });
+        const groupsDiv = document.getElementById('groups');
+        groupsDiv.innerHTML = '<ul>' + data.map(g => `<li>${g.name}: ${g.members.join(', ')}</li>`).join('') + '</ul>';
+        return data;
+      }
+
+      // Fetch group members for payer select
+      async function updatePayerSelect(groupId) {
+        const payerSelect = document.getElementById('payerSelect');
+        if (!groupId) {
+          payerSelect.innerHTML = '<option value="">Select Payer</option>';
+          return;
+        }
+        const response = await fetch(`${baseUrl}/groups`);
+        const { data: groups } = await response.json();
+        const group = groups.find(g => g._id === groupId);
+        if (group) {
+          payerSelect.innerHTML = '<option value="">Select Payer</option>' + group.members.map(m => `<option value="${m}">${m}</option>`).join('');
+        }
+      }
+
+      // Update split details form
+      async function updateSplitDetails() {
+        const splitType = document.getElementById('splitType').value;
+        const groupId = document.getElementById('groupSelectExpense').value;
+        const splitDetailsDiv = document.getElementById('splitDetails');
+        splitDetailsDiv.innerHTML = '';
+
+        if (splitType === 'equal' || !groupId) return;
+
+        const response = await fetch(`${baseUrl}/groups`);
+        const { data: groups } = await response.json();
+        const group = groups.find(g => g._id === groupId);
+        if (!group) return;
+
+        group.members.forEach(member => {
+          const div = document.createElement('div');
+          div.innerHTML = `
+            <label>${member} (${splitType === 'percentage' ? 'Percentage' : 'Amount'}):
+              <input type="number" name="split_${member}" min="0" ${splitType === 'percentage' ? 'max="100"' : ''} required>
+            </label>
+          `;
+          splitDetailsDiv.appendChild(div);
+        });
+      }
+
+      // Fetch expenses
+      async function fetchExpenses(groupId) {
+        const url = groupId ? `${baseUrl}/expenses?group_id=${groupId}` : `${baseUrl}/expenses`;
+        const response = await fetch(url);
+        const { data } = await response.json();
+        const expensesDiv = document.getElementById('expenses');
+        expensesDiv.innerHTML = '<ul>' + data.map(exp => 
+          `<li>${exp.description}: ₹${exp.amount} (Paid by ${exp.paid_by}, ${exp.category}, ${exp.split_type})</li>`
+        ).join('') + '</ul>';
+      }
+
+      // Fetch balances
+      async function fetchBalances(groupId) {
+        const url = groupId ? `${baseUrl}/settlements/balances?group_id=${groupId}` : `${baseUrl}/settlements/balances`;
+        const response = await fetch(url);
+        const { data } = await response.json();
+        const balancesDiv = document.getElementById('balances');
+        balancesDiv.innerHTML = '<ul>' + Object.entries(data).map(([person, info]) => 
+          `<li>${person}: Balance ₹${info.balance} (Paid ₹${info.paid}, Owes ₹${info.owed})</li>`
+        ).join('') + '</ul>';
+      }
+
+      // Fetch settlements
+      async function fetchSettlements(groupId) {
+        const url = groupId ? `${baseUrl}/settlements?group_id=${groupId}` : `${baseUrl}/settlements`;
+        const response = await fetch(url);
+        const { data } = await response.json();
+        const settlementsDiv = document.getElementById('settlements');
+        settlementsDiv.innerHTML = '<ul>' + data.map(s => 
+          `<li>${s.from} pays ${s.to} ₹${s.amount}</li>`
+        ).join('') + '</ul>';
+      }
+
+      // Fetch category summary
+      async function fetchCategorySummary(groupId) {
+        const url = groupId ? `${baseUrl}/settlements/category-summary?group_id=${groupId}` : `${baseUrl}/settlements/category-summary`;
+        const response = await fetch(url);
+        const { data } = await response.json();
+        const summaryDiv = document.getElementById('categorySummary');
+        summaryDiv.innerHTML = '<ul>' + data.map(s => 
+          `<li>${s.category}: ₹${s.total} (${s.count} expenses)</li>`
+        ).join('') + '</ul>';
+      }
+
+      // Handle group form submission
+      document.getElementById('groupForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const group = {
+          name: formData.get('name'),
+          members: formData.get('members').split(',').map(m => m.trim()).filter(m => m),
+        };
+
+        const response = await fetch(`${baseUrl}/groups`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(group),
+        });
+        const result = await response.json();
+        alert(result.message);
+        fetchGroups();
+        e.target.reset();
+      });
+
+      // Handle add member form submission
+      document.getElementById('addMemberForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const data = {
+          group_id: formData.get('group_id'),
+          member: formData.get('member').trim(),
+        };
+
+        const response = await fetch(`${baseUrl}/groups/add-member`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        const result = await response.json();
+        alert(result.message);
+        fetchGroups();
+        updatePayerSelect(document.getElementById('groupSelectExpense').value);
+        updateSplitDetails();
+        e.target.reset();
+      });
+
+      // Handle expense form submission
+      document.getElementById('expenseForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const splitType = formData.get('split_type');
+        const groupId = formData.get('group_id');
+        let splitDetails = [];
+
+        if (splitType !== 'equal') {
+          const response = await fetch(`${baseUrl}/groups`);
+          const { data: groups } = await response.json();
+          const group = groups.find(g => g._id === groupId);
+          splitDetails = group.members.map(member => ({
+            person: member,
+            [splitType === 'percentage' ? 'percentage' : 'amount']: parseFloat(formData.get(`split_${member}`)) || 0,
+          }));
+        }
+
+        const expense = {
+          amount: parseFloat(formData.get('amount')),
+          description: formData.get('description'),
+          paid_by: formData.get('paid_by'),
+          category: formData.get('category'),
+          split_type: splitType,
+          split_details: splitDetails,
+          group_id: groupId,
+        };
+
+        const response = await fetch(`${baseUrl}/expenses`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(expense),
+        });
+        const result = await response.json();
+        alert(result.message);
+        fetchExpenses(groupId);
+        fetchBalances(groupId);
+        fetchSettlements(groupId);
+        fetchCategorySummary(groupId);
+        e.target.reset();
+        updateSplitDetails();
+      });
+
+      // Event listeners for group selection changes
+      document.getElementById('expenseGroupSelect').addEventListener('change', (e) => fetchExpenses(e.target.value));
+      document.getElementById('balanceGroupSelect').addEventListener('change', (e) => fetchBalances(e.target.value));
+      document.getElementById('settlementGroupSelect').addEventListener('change', (e) => fetchSettlements(e.target.value));
+      document.getElementById('categoryGroupSelect').addEventListener('change', (e) => fetchCategorySummary(e.target.value));
+      document.getElementById('groupSelectExpense').addEventListener('change', (e) => {
+        updatePayerSelect(e.target.value);
+        updateSplitDetails();
+      });
+      document.getElementById('splitType').addEventListener('change', updateSplitDetails);
+
+      // Initial fetch
+      fetchGroups().then(() => {
+        updateSplitDetails();
+      });
+    </script>
+  </body>
+  </html>
